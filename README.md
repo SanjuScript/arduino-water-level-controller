@@ -110,7 +110,7 @@ See the [LICENSE](LICENSE) file for details.
 
 ## 👤 Author
 
-**[Sanjay N P]**  
+**Sanjay N P**  
 💼 Hobbyist & Embedded Systems Enthusiast
 
 ---
