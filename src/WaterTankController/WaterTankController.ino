@@ -11,16 +11,11 @@ U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 // RELAY
 #define RELAY_PIN 7
 
-// BUTTON (we're not using manual override now)
-#define BUTTON_PIN 6
-#define BUTTON_LED_PIN 5
-// bool lastButtonState = HIGH;
-// bool manualOverride = false;
-
 // Tank height thresholds
 const int motorOnThreshold = 75;
-const int motorOffThreshold = 7;
+const int motorOffThreshold = 10;
 
+// Motor state
 bool pumpState = false;
 
 void setup() {
@@ -29,11 +24,7 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH); // Motor OFF
-
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-  pinMode(BUTTON_LED_PIN, OUTPUT);
-  digitalWrite(BUTTON_LED_PIN, LOW); // LED OFF
+  digitalWrite(RELAY_PIN, HIGH);  // Motor OFF initially
 
   display.begin();
   display.clearBuffer();
@@ -57,7 +48,7 @@ int getFilteredDistance() {
     if (dist > 0 && dist < 400) {
       sum += dist;
     } else {
-      sum += 999;
+      sum += 999;  // Invalid reading
     }
     delay(50);
   }
@@ -70,22 +61,26 @@ void loop() {
   // --- Automatic Control Only ---
   if (!pumpState && distance >= motorOnThreshold) {
     pumpState = true;
+    Serial.println("Motor turned ON");
   } else if (pumpState && distance <= motorOffThreshold) {
     pumpState = false;
+    Serial.println("Motor turned OFF");
   }
+  
+  Serial.println(pumpState);
 
-  digitalWrite(RELAY_PIN, pumpState ? LOW : HIGH);  // Motor ON = LOW
-  digitalWrite(BUTTON_LED_PIN, pumpState ? HIGH : LOW);  // LED ON = Pump ON
+  digitalWrite(RELAY_PIN, pumpState ? HIGH : LOW);  // Motor ON = LOW
 
   // Debug print
   Serial.print("Distance: ");
   Serial.print(distance);
-  Serial.println(" cm");
+  Serial.print(" cm | Motor: ");
+  Serial.println(pumpState ? "ON" : "OFF");
 
-  // Display UI
+  // --- Display UI ---
   display.clearBuffer();
 
-  // Tank Display
+  // Tank Frame
   const int tankX = 100;
   const int tankY = 10;
   const int tankWidth = 25;
@@ -108,16 +103,16 @@ void loop() {
   sprintf(buf, "Level: %d cm", distance);
   display.drawStr(0, 10, buf);
 
+  display.drawStr(0, 30, "Mode: AUTO");
+
   if (pumpState) {
-    display.drawStr(0, 35, "Motor: ON");
+    display.drawStr(0, 45, "Motor: ON");
   } else {
-    display.drawStr(0, 35, "Motor: OFF");
+    display.drawStr(0, 45, "Motor: OFF");
   }
 
   sprintf(buf, "Water: %d%%", waterPercentage);
   display.drawStr(0, 60, buf);
-
-  // display.drawCircle(120, 10, 5);  // Manual override indicator - removed
 
   display.sendBuffer();
   delay(1000);
