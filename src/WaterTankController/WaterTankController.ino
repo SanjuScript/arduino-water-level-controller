@@ -1,119 +1,144 @@
+
 #include <Wire.h>
 #include <U8g2lib.h>
 
-// DISPLAY
-U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
+U8G2_SH1106_128X64_NONAME_F_HW_I2C display(
+  U8G2_R0,
+  U8X8_PIN_NONE
+);
 
-// SENSORS
-#define TRIG_PIN 9
-#define ECHO_PIN 8
+// Pins
+#define FLOAT_PIN   2
+#define MODE_BTN    3
+#define MOTOR_BTN   4
 
-// RELAY
-#define RELAY_PIN 7
+#define BLUE_LED    6
+#define GREEN_LED   7
 
-// Tank height thresholds
-const int motorOnThreshold = 75;
-const int motorOffThreshold = 10;
+#define RELAY_PIN   8
 
-// Motor state
-bool pumpState = false;
+// Relay active LOW
+#define RELAY_ON  HIGH
+#define RELAY_OFF LOW
+
+bool autoMode = true;
+bool motorState = false;
+
+bool lastModeBtn = HIGH;
+bool lastMotorBtn = HIGH;
 
 void setup() {
-  Serial.begin(9600);
 
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
+  Serial.begin(115200);
+
+  pinMode(FLOAT_PIN, INPUT_PULLUP);
+
+  pinMode(MODE_BTN, INPUT_PULLUP);
+  pinMode(MOTOR_BTN, INPUT_PULLUP);
+
+  pinMode(BLUE_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH);  // Motor OFF initially
+
+  digitalWrite(RELAY_PIN, RELAY_OFF);
 
   display.begin();
+
   display.clearBuffer();
-  display.setFont(u8g2_font_6x12_tr);
-  display.drawStr(10, 30, "Made by sanju");
+  display.setFont(u8g2_font_ncenB08_tr);
+  display.drawStr(15, 25, "Water Tank");
+  display.drawStr(15, 45, "Controller");
   display.sendBuffer();
+
   delay(1500);
 }
 
-int getFilteredDistance() {
-  long sum = 0;
-  int readings = 5;
-  for (int i = 0; i < readings; i++) {
-    digitalWrite(TRIG_PIN, LOW);
-    delayMicroseconds(2);
-    digitalWrite(TRIG_PIN, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(TRIG_PIN, LOW);
-    long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-    int dist = duration * 0.034 / 2;
-    if (dist > 0 && dist < 400) {
-      sum += dist;
-    } else {
-      sum += 999;  // Invalid reading
-    }
-    delay(50);
+void loop() {
+
+  bool floatState = digitalRead(FLOAT_PIN);
+  bool modeBtn = digitalRead(MODE_BTN);
+  bool motorBtn = digitalRead(MOTOR_BTN);
+
+  // ===== MODE BUTTON =====
+  if (lastModeBtn == HIGH && modeBtn == LOW) {
+
+    autoMode = !autoMode;
+
+    Serial.print("Mode: ");
+    Serial.println(autoMode ? "AUTO" : "MANUAL");
+
+    delay(250);
   }
-  return sum / readings;
+
+  lastModeBtn = modeBtn;
+
+  // ===== AUTO MODE =====
+  if (autoMode) {
+
+    // UP = 0 = FULL
+    // DOWN = 1 = LOW
+
+    if (floatState == HIGH) {
+      motorState = true;
+    }
+
+    if (floatState == LOW) {
+      motorState = false;
+    }
+  }
+
+  // ===== MANUAL MODE =====
+ else {
+
+  if (lastMotorBtn == HIGH && motorBtn == LOW) {
+
+    motorState = !motorState;
+
+    Serial.print("Motor: ");
+    Serial.println(motorState ? "ON" : "OFF");
+
+    delay(250);
+  }
 }
 
-void loop() {
-  int distance = getFilteredDistance();
+  lastMotorBtn = motorBtn;
 
-  // --- Automatic Control Only ---
-  if (!pumpState && distance >= motorOnThreshold) {
-    pumpState = true;
-    Serial.println("Motor turned ON");
-  } else if (pumpState && distance <= motorOffThreshold) {
-    pumpState = false;
-    Serial.println("Motor turned OFF");
-  }
-  
-  Serial.println(pumpState);
+  // ===== RELAY =====
+  digitalWrite(RELAY_PIN,
+               motorState ? RELAY_ON : RELAY_OFF);
 
-  digitalWrite(RELAY_PIN, pumpState ? HIGH : LOW);  // Motor ON = LOW
+  // ===== LEDS =====
 
-  // Debug print
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.print(" cm | Motor: ");
-  Serial.println(pumpState ? "ON" : "OFF");
+  // Green LED ON only in MANUAL mode
+  digitalWrite(GREEN_LED,
+               autoMode ? LOW : HIGH);
 
-  // --- Display UI ---
+  // Blue LED ON only when motor ON in MANUAL mode
+  digitalWrite(BLUE_LED,
+               (!autoMode && motorState) ? HIGH : LOW);
+
+  // ===== OLED =====
   display.clearBuffer();
 
-  // Tank Frame
-  const int tankX = 100;
-  const int tankY = 10;
-  const int tankWidth = 25;
-  const int tankHeight = 50;
+  display.setFont(u8g2_font_6x12_tr);
 
-  display.drawFrame(tankX, tankY, tankWidth, tankHeight);
+  display.drawStr(0, 12, "Water Controller");
 
-  int waterHeight = map(constrain(distance, motorOffThreshold, motorOnThreshold),
-                        motorOnThreshold, motorOffThreshold,
-                        0, tankHeight);
+  display.drawStr(0, 28,
+                  autoMode ? "Mode : AUTO"
+                           : "Mode : MANUAL");
 
-  display.drawBox(tankX + 1, tankY + tankHeight - waterHeight, tankWidth - 2, waterHeight);
+  display.drawStr(0, 44,
+                  motorState ? "Motor: ON"
+                             : "Motor: OFF");
 
-  int waterPercentage = map(constrain(distance, motorOffThreshold, motorOnThreshold),
-                            motorOnThreshold, motorOffThreshold,
-                            0, 100);
-
-  display.setFont(u8g2_font_ncenB08_tr);
-  char buf[20];
-  sprintf(buf, "Level: %d cm", distance);
-  display.drawStr(0, 10, buf);
-
-  display.drawStr(0, 30, "Mode: AUTO");
-
-  if (pumpState) {
-    display.drawStr(0, 45, "Motor: ON");
-  } else {
-    display.drawStr(0, 45, "Motor: OFF");
-  }
-
-  sprintf(buf, "Water: %d%%", waterPercentage);
-  display.drawStr(0, 60, buf);
+  display.drawStr(0, 60,
+                  floatState == LOW
+                    ? "Tank : FULL"
+                    : "Tank : LOW");
 
   display.sendBuffer();
-  delay(1000);
+
+  delay(50);
 }
